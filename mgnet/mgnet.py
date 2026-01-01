@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 import logging
 
 __all__ = [ 'mgnet_resnet', 'MGNet' ]
-logger = logging.getLogger(__name__)
 
 MODEL_URLS = {
     'mgnet': 'https://download.pytorch.org/models/'
@@ -21,6 +20,55 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
 
 def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+
+class MgNetBaseBlock(nn.Module):
+    def __init__(self, *args, **kwargs):
+        self.expansion = 1
+        super().__init__(*args, **kwargs)
+
+
+class MgNetBlock(nn.Module):
+    def __init__(self, n_chan: int) -> None:
+        super().__init__()
+        self.batch_norm = nn.BatchNorm2d(num_features=n_chan)
+        self.conv1 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, stride=1, bias=False)  # A
+        self.conv2 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, stride=1, bias=False)  # B
+        self.conv3 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, stride=1, bias=False)  # R
+        self.conv4 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, stride=2, bias=False)  # \Pi
+
+    def forward(self, u: Tensor, f: Tensor, eta: Iterator[int], A_old: nn.Conv2d) -> Tuple[Tensor, Tensor, Iterator[int], nn.Conv2d]:
+        out = u
+        for i in range(next(eta)):
+            u_i = out
+            out = f - A_old(out)
+            out = torch.relu(self.batch_norm(out))
+            out = u_i + torch.relu(self.batch_norm(self.conv2(out)))
+        u_l_1 = torch.relu(self.batch_norm(self.conv4(out)))
+        f = torch.relu(self.batch_norm(self.conv3(f - A_old(out)) + self.conv1(u_l_1)))
+        return u_l_1, f, eta, self.conv1
+
+
+class Bottleneck(nn.Module):
+    """
+    Bottleneck in torchvision places the stride for down-sampling at 3x3 convolution (self.conv2)
+    while original implementation places the stride at the first 1x1 convolution (self.conv1)
+    This variant improves the accuracy of the MGNet as it does for ResNet V1.5
+    """
+    def __init__(self):
+        super(Bottleneck, self).__init__()
+        pass
+
+
+class TupleSequential(nn.Sequential):
+    def forward(self, *inputs):
+        for module in self._modules.values():
+            if type(inputs) == tuple:
+                inputs = module(*inputs)
+            else:
+                inputs = module(inputs)
+        return inputs
+
 
 
 class MGBlockSmoothing(nn.Module):
@@ -94,13 +142,20 @@ class MGNet(nn.Module):
             layers.append(layer)
         self.mg_blocks = nn.Sequential(*layers)
 
+    @property
+    def parameters_count(self) -> int:
+      return sum(parameter.numel() for parameter in self.paramters() if parameter.required_grad)
+
+    @property
+    def loaded_device(self):
+      return next(self.parameters()).device
+
     def _forward_impl(self, x: Tensor) -> Tensor:
         f = self.conv1(x)
         f = self.bn1(f)
         f = self.relu(f)
         f = self.maxpool(f)
-        u0 = torch.zeros(f.shape)
-        logger.info(f'Device: {u0.device=}')
+        u0 = torch.zeros(f.shape, device=self.loaded_device)
         out = (u0, u0, f)
         out = self.mg_blocks(out)
         u, u_old, f = out
@@ -136,6 +191,3 @@ def _mgnet(arch: str, block, layers: List[int], pretrained: bool,  progress: boo
 
 def mgnet_resnet(pretrained=False, progress=True, **kwargs):
     return _mgnet('mgnet_resnet', MgNetBlock, [2, 2, 2, 2, 2], pretrained, progress, **kwargs)
-
-
-# def mgnet_iresnet(pretrained=False, progress=True, **kwargs):
