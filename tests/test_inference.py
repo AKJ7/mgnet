@@ -4,16 +4,18 @@ import logging
 import argparse
 import torch
 from torchvision import transforms as transforms
-from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
 from mgnet.mgnet import mgnet_resnet
 import torch.optim as optim
 import torch.nn as nn
 from matplotlib import pyplot as plt
+from mgnet.dataset import MGNetDataset, DataSetSupported
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+_DEFAULT_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+# _DEFAULT_DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 CLASSES = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 transform_train = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
@@ -26,15 +28,28 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
 ])
 
+def _setup_logger(verbosity: int) -> None:
+    levels = (logging.WARNING, logging.INFO, logging.DEBUG)
+    log_format = '%(asctime)s.%(msecs)03d [%(levelname)-7s] %(name)-35s: %(message)s'
+    assert verbosity <= len(levels), f'Array overflow! Expected at most: {len(levels)}. Got {verbosity=}'
+    log_level = levels[verbosity]
+    logging.basicConfig(level=log_level, format=log_format)
+    logger.debug(f'Verbosity set to: {verbosity=}')
 
-def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_epochs: int, save_interval: int) -> None:
-    logger.info(f'Started tests')
-    logger.info(f'Learning rate: {lr}, Batch size: {batch_size}, Momentum: {momentum}, Weight decay: {weight_decay}')
-    train_set = CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-    train_loader = DataLoader(train_set, batch_size, shuffle=True, num_workers=2)
-    test_set = CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-    test_loader = DataLoader(test_set, batch_size, shuffle=False, num_workers=2)
-    net = mgnet_resnet(False).to(device=DEVICE)
+
+def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_epochs: int, save_interval: int, dataset: str, verbosity: int,
+         device: str, n_chan_u: int, n_chan_f: int) -> None:
+    _setup_logger(verbosity)
+    logger.info(f'Started main tests')
+    logger.info(f'Learning rate: {lr}, {batch_size=}, {momentum=}, {weight_decay=}, {max_epochs=}, {dataset=}, {device=}')
+    train_dataset = MGNetDataset(dataset, Path('./data'), train=True, download=True, transforms=transform_train)
+    test_dataset = MGNetDataset(dataset, Path('./data'), train=False, download=True, transforms=transform_test)
+    train_loader = DataLoader(train_dataset.dataset, batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_dataset.dataset, batch_size, shuffle=False, num_workers=2)
+    torch_device = torch.device(device)
+    n_elements, width, height, in_channels = train_dataset.dim
+    net = (mgnet_resnet(False, in_channels=in_channels, n_chan_u=n_chan_u, n_chan_f=n_chan_f)
+           .to(device=torch_device))
     optimizer = optim.SGD(net.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
     train_losses = []
@@ -46,11 +61,11 @@ def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_e
         correct = 0
         total = 0
         for batch_id, (inputs, targets) in enumerate(train_loader):
-            inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
+            inputs, targets = inputs.to(torch_device), targets.to(torch_device)
             optimizer.zero_grad()
             outputs = net(inputs)
             loss = criterion(outputs, targets)
-            loss.backwar()
+            loss.backward()
             optimizer.step()
             train_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -66,7 +81,7 @@ def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_e
         total = 0
         with torch.no_grad():
             for batch_id, (inputs, targets) in enumerate(test_loader):
-                inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
+                inputs, targets = inputs.to(torch_device), targets.to(torch_device)
                 outputs = net(inputs)
                 loss = criterion(outputs, targets)
                 test_loss += loss.item()
@@ -83,6 +98,7 @@ def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_e
             dest = Path(f'mgnet_{current_epoch}.pth')
             torch.save(net.state_dict(), dest)
             logger.info(f'Model saved at {dest}')
+
     fig, (train_ax, test_ax) = plt.subplots(2)
     fig.suptitle('Training results')
     train_ax.plot(range(1, len(train_losses)), train_losses)
@@ -93,13 +109,18 @@ def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_e
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    # TODO: Add to uv: PYTHONPATH="${PYTHONPATH}:${PWD}" /home/hp/.local/bin/uv run tests/test_inference.py
     parser = argparse.ArgumentParser(description='Train and test MGNet')
     parser.add_argument('--lr', help='Learning rate', default=1e-1, type=float)
     parser.add_argument('--batch_size', help='Batch Size', default=128, type=int)
     parser.add_argument('--momentum', help='Momentum', default=0.9, type=float)
     parser.add_argument('--weight_decay', help='Weight decay', default=5e-4, type=float)
-    parser.add_argument('--max_epochs', help='Max epochs', default=200, type=int)
+    parser.add_argument('--max_epochs', help='Max epochs', default=2, type=int)
     parser.add_argument('--save_interval', help='Interval at which the model should be saved', default=10, type=int)
+    parser.add_argument('--dataset', help='Dataset to train and test upon', default=DataSetSupported.CIFAR10.to_str(), choices=DataSetSupported.all(), type=str)
+    parser.add_argument('--device', help='Device to use', default=_DEFAULT_DEVICE, type=str)
+    parser.add_argument('--n_chan_u', help='Number of channels to use of u', default=256, type=int)
+    parser.add_argument('--n_chan_f', help='Number of channels to use of f', default=256, type=int)
+    parser.add_argument('-v', '--verbosity', help='Set verbosity level', action='count', default=1)
     args = parser.parse_args()
     main(**args.__dict__)

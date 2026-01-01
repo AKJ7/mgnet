@@ -16,13 +16,13 @@ class EarlyStopping:
         :param filename: Name of the checkpoint file name
         :param log_level: Lowest log severity level to dispatch
         """
-        self.__patience = patience
-        self.__counter = 0
-        self.__filename = filename
-        self.__best_score = None
-        self.__early_stop = False
-        self.__val_loss_min = np.Inf
-        self.__delta = delta
+        self._patience = patience
+        self._counter = 0
+        self._filename = filename
+        self._best_score = None
+        self._early_stop = False
+        self._val_loss_min = np.Inf
+        self._delta = delta
         logger.setLevel(log_level)
         logger.debug(f'Early-Stopping Object initialised at: {hex(id(self))}')
 
@@ -32,52 +32,55 @@ class EarlyStopping:
 
     def __call__(self, val_loss: float, epoch: int, model) -> None:
         score = val_loss
-        if self.__best_score is None:
+        if self._best_score is None:
             logger.debug(f'No best score. Storing initial value. Value: {val_loss}, epoch: {epoch}')
-            self.__best_score = score
-            self._save_checkpoint(val_loss, epoch, model)
-        elif self.__best_score - self.__delta > score:
-            self.__counter += 1
-            logger.debug(f'Early-Stopping counter: {self.__counter} out of patience: {self.__patience}')
-            if self.__counter >= self.__patience:
-                self.__early_stop = True
+            self._best_score = score
+            self.save_checkpoint(val_loss, epoch, model)
+        elif self._best_score - self._delta > score:
+            self._counter += 1
+            logger.debug(f'Early-Stopping counter: {self._counter} out of patience: {self._patience}')
+            if self._counter >= self._patience:
+                self._early_stop = True
         else:
-            self.__best_score = score
+            self._best_score = score
             self._save_checkpoint(val_loss, epoch, model)
-            self.__counter = 0
+            self._counter = 0
 
     def _save_checkpoint(self, val_loss: float, epoch: int, model) -> None:
         # Path.with_stem only supported in pathlib version 3.9 onwards
-        filename = self.__filename.with_name(f'{self.__filename.stem}_{epoch}').with_suffix(self.__filename.suffix)
-        logger.info(f'Validation loss decreased. {self.__val_loss_min: .6f} -> {val_loss: .6f}. Saving model at: '
+        filename = self._filename.with_name(f'{self._filename.stem}_{epoch}').with_suffix(self._filename.suffix)
+        logger.info(f'Validation loss decreased. {self._val_loss_min: .6f} -> {val_loss: .6f}. Saving model at: '
                     f'{filename}')
         torch.save(model.state_dict(), filename)
 
 
 class Averager:
     def __init__(self, name: str):
-        self.__name = name
-        self.__reset()
+        self._name = name
+        self._current = 0
+        self._average = 0
+        self._sum = 0
+        self._count = 0
 
     @property
     def count(self) -> float:
-        return self.__count
+        return self._count
 
     @property
     def value(self) -> float:
-        return self.__sum
+        return self._sum
 
-    def __reset(self):
-        self.__current = 0
-        self.__average = 0
-        self.__sum = 0
-        self.__count = 0
+    def reset(self):
+        self._current = 0
+        self._average = 0
+        self._sum = 0
+        self._count = 0
 
-    def __insert(self, value: float, numb=1):
-        self.__current += value
-        self.__sum += value * numb
-        self.__count += 1
-        self.__average = self.__sum / self.__count
+    def insert(self, value: float, numb=1):
+        self._current += value
+        self._sum += value * numb
+        self._count += 1
+        self._average = self._sum / self._count
 
     def __repr__(self) -> str:
-        return f'Averager: "{self.__name}". Value: {self.__sum}, Average: {self.__average}, Count: {self.__count}'
+        return f'Averager: "{self._name}". Value: {self._sum}, Average: {self._average}, Count: {self._count}'

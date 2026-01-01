@@ -5,12 +5,10 @@ import torch.nn as nn
 from torch import Tensor
 from torch.hub import load_state_dict_from_url
 from abc import ABC, abstractmethod
+import logging
 
-__all__ = [
-    'mgnet_resnet',
-    'MGNet'
-]
-
+__all__ = [ 'mgnet_resnet', 'MGNet' ]
+logger = logging.getLogger(__name__)
 
 MODEL_URLS = {
     'mgnet': 'https://download.pytorch.org/models/'
@@ -21,119 +19,123 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False,
                      dilation=dilation)
 
-
 def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
-class MgNetBaseBlock(nn.Module):
-    pass
-
-
-class MgNetBlock(nn.Module):
-    def __init__(self, n_chan: int) -> None:
+class MGBlockSmoothing(nn.Module):
+    def __init__(self, A: nn.Conv2d, B: nn.Conv2d):
         super().__init__()
+        self.A = A
+        self.B = B
+        self.batch_normA = nn.BatchNorm2d(num_features=A.weight.size(0))
+        self.batch_normB = nn.BatchNorm2d(num_features=B.weight.size(0))
+
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        u, _, f = x
+        out = f - self.A(u)
+        out = torch.relu(self.batch_normA(out))
+        out = u + torch.relu(self.batch_normB(self.B(out)))
+        out = (out, out, f)
+        return out
+
+
+class MGBlockProlongation(nn.Module):
+    def __init__(self, n_chan: int):
+        super().__init__()
+        self.pi = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, stride=2, bias=False)
         self.batch_norm = nn.BatchNorm2d(num_features=n_chan)
-        self.conv1 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, bias=True)  # A
-        self.conv2 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, bias=True)  # B
-        self.conv3 = nn.Conv2d(n_chan, n_chan, kernel_size=3, padding=1, bias=True, stride=2)  # R
-        self.conv4 = nn.ConvTranspose2d(n_chan, n_chan, kernel_size=3, padding=1, bias=False, stride=2)  # P
-        self.conv5 = nn.Conv2d(n_chan, n_chan, kernel_size=2, padding=0, bias=False)  # \Pi
 
-    def forward(self, u: Tensor, f: Tensor, eta: Iterator[int]) -> Tuple[Tensor, Tensor, Iterator[int]]:
-        out = u
-        for i in range(next(eta)):
-            out = f - self.conv1(out)
-            out = torch.relu(self.batch_norm(out))
-            out = out + torch.relu(self.conv2(out))
-        u_l_1 = self.batch_norm(self.conv5(out))
-        f = self.batch_norm(self.conv3(f - self.conv1(out)) + self.conv3(self.conv1(self.conv4(u_l_1))))
-        return u_l_1, f, eta
+    def forward(self, out: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        u, u_old, f = out
+        u_l_1 = torch.relu(self.batch_norm(self.pi(u)))
+        out = (u_l_1, u_old, f)
+        return out
 
 
-class Bottleneck(nn.Module):
-    """
-    Bottleneck in torchvision places the stride for down-sampling at 3x3 convolution (self.conv2)
-    while original implementation places the stride at the first 1x1 convolution (self.conv1)
-    This variant improves the accuracy of the MGNet as it does for ResNet V1.5
-    """
-    def __init__(self):
-        super(Bottleneck, self).__init__()
-        pass
+class MGBlockRestriction(nn.Module):
+    def __init__(self, A_old: nn.Conv2d, n_chan_u: int, n_chan_f: int):
+        super().__init__()
+        self.A_old = A_old
+        self.R = nn.Conv2d(n_chan_f, n_chan_u, kernel_size=3, padding=1, stride=2, bias=False)  # R
+        self.A_l = nn.Conv2d(n_chan_u, n_chan_f, kernel_size=3, padding=1, stride=1, bias=False) # A_{l+1}
+        self.batch_norm = nn.BatchNorm2d(self.A_old.weight.size(0))
 
-
-class TupleSequential(nn.Sequential):
-    def forward(self, *inputs):
-        for module in self._modules.values():
-            if type(inputs) == tuple:
-                inputs = module(*inputs)
-            else:
-                inputs = module(inputs)
-        return inputs
+    def forward(self, out: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        u_l_1, u_l, f = out
+        f = torch.relu(self.batch_norm(self.R(f - self.A_old(u_l)) + self.A_l(u_l_1)))
+        out = (u_l_1, u_l, f)
+        return out
 
 
 class MGNet(nn.Module):
-    def __init__(self, block: MgNetBaseBlock, n_iter: List[int], num_classes=1000, zero_init_residual=False, groups=1,
-                 width_per_group=64, replace_stride_with_dilation=None, norm_layer=None) -> None:
+    def __init__(self, block: MgNetBaseBlock, n_iter: List[int], n_chan_u: int, n_chan_f: int, in_channels: int, num_classes=1000, in_chanel: int = 3, zero_init_residual=False, groups=1,
+                 width_per_group=64, replace_stride_with_dilation=None, norm_layer: Optional[torch.nn.Module] = None) -> None:
         super(MGNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.norm_layer = norm_layer
-        self.inplanes = 64
-        self.dilation = 1
-        if replace_stride_with_dilation is None:
-            # each element in the tuple indicates if we should replace
-            # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, False]
-        if len(replace_stride_with_dilation) != 3:
-            raise ValueError(f'replace_stride_with_dilation should be "None" or a 3-element tuple! '
-                             f'Got {replace_stride_with_dilation}')
-        self.groups = groups
-        self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = norm_layer(self.inplanes)
+        self.n_chan_u = n_chan_u
+        self.n_chan_f = n_chan_f
+        self.conv1 = nn.Conv2d(in_channels, self.n_chan_f, kernel_size=3, stride=1, padding=3, bias=False)
+        self.bn1 = norm_layer(self.n_chan_f)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block)
         self.numb_blocks = len(n_iter)
         self.iter = n_iter
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
-        self.mgblocks = TupleSequential(*(self.numb_blocks * [MgNetBlock(self.inplanes)]))
-        for module in self.modules():
-            if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d)):
-                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(module, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(module.weight, 1)
-                nn.init.constant_(module.bias, 0)
+        self.fc = nn.Linear(self.n_chan_u, num_classes)
+
+        layers = []
+        A = nn.Conv2d(self.n_chan_u, self.n_chan_f, kernel_size=3, stride=1, padding=1, bias=False)
+        for l, smooth_count in enumerate(n_iter):
+            layer, A_l_1 = self._make_layer(self.n_chan_u, self.n_chan_f, smooth_count=smooth_count, A=A)
+            A = A_l_1
+            layers.append(layer)
+        self.mg_blocks = nn.Sequential(*layers)
 
     def _forward_impl(self, x: Tensor) -> Tensor:
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        u0 = torch.zeros(x.shape)
-        etas = iter(self.iter)
-        x, f, etas = self.mgblocks(u0, x, etas)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-        return x
+        f = self.conv1(x)
+        f = self.bn1(f)
+        f = self.relu(f)
+        f = self.maxpool(f)
+        u0 = torch.zeros(f.shape)
+        logger.info(f'Device: {u0.device=}')
+        out = (u0, u0, f)
+        out = self.mg_blocks(out)
+        u, u_old, f = out
+        u = self.avgpool(u)
+        u = torch.flatten(u, 1)
+        u = self.fc(u)
+        return u
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
 
+    @staticmethod
+    def _make_layer(n_chan_u: int, n_chan_f: int, smooth_count: int, A: nn.Conv2d) -> Tuple[nn.Sequential, nn.Conv2d]:
+        layer = []
+        for i in range(smooth_count):
+            B = nn.Conv2d(n_chan_f, n_chan_u, kernel_size=3, padding=1, stride=1, bias=False)  # B
+            block = MGBlockSmoothing(A, B)
+            layer.append(block)
+        prolongation_block = MGBlockProlongation(n_chan_u)
+        restriction_block = MGBlockRestriction(A, n_chan_f, n_chan_u)
+        layer.append(prolongation_block)
+        layer.append(restriction_block)
+        seq_layer = nn.Sequential(*layer)
+        return seq_layer, restriction_block.A_l
 
-def _mgnet(arch: str, block, layers: List[int], pretained: bool,  progress: bool, **kwargs):
+
+def _mgnet(arch: str, block, layers: List[int], pretrained: bool,  progress: bool, **kwargs):
     model = MGNet(block, layers, **kwargs)
-    if pretained:
+    if pretrained:
         state_dict = load_state_dict_from_url(MODEL_URLS[arch], progress=progress)
         model.load_state_dict(state_dict)
     return model
 
-
 def mgnet_resnet(pretrained=False, progress=True, **kwargs):
-    return _mgnet('mgnet_resnet', MgNetBlock, [], pretrained, progress, **kwargs)
+    return _mgnet('mgnet_resnet', MgNetBlock, [2, 2, 2, 2, 2], pretrained, progress, **kwargs)
 
 
 # def mgnet_iresnet(pretrained=False, progress=True, **kwargs):
