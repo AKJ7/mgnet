@@ -23,7 +23,15 @@ repository came to be.
 
 
 ## Theory of operation  
-TODO
+```mermaid
+graph TD;
+    A[A<sup>l,i-1</sup>]-->B;
+    A-->C;
+    B-->D;
+    C-->D
+```
+
+
 
 ## Building and Running  
 Build image:

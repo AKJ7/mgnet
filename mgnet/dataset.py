@@ -1,4 +1,3 @@
-import enum
 from torch import Tensor
 from torch.utils.data import Dataset
 import torchvision.datasets as torch_datasets
