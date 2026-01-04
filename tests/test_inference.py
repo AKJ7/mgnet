@@ -11,45 +11,74 @@ from matplotlib import pyplot as plt
 from pathlib import Path
 import sys
 from typing import Dict, List
-from mgnet.dataset import MGNetDataset, DataSetSupported
-from mgnet.mgnet import mgnet_resnet
+from mgnet.dataset import MGNetDataset
+from mgnet.mgnet import mgnet, MGNet
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-])
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-])
+transform_train = transforms.Compose(
+    [
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ]
+)
+transform_test = transforms.Compose(
+    [transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]
+)
+
+
+class SplitArgs(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, list(map(int, values.split(','))))
+
 
 def _setup_logger(verbosity: int) -> None:
     levels = (logging.WARNING, logging.INFO, logging.DEBUG)
-    log_format = '%(asctime)s.%(msecs)03d [%(levelname)-7s] %(name)-35s: %(message)s'
+    log_format = '%(asctime)s [%(levelname)-7s] %(name)-35s: %(message)s'
     assert verbosity <= len(levels), f'Array overflow! Expected at most: {len(levels)}. Got {verbosity=}'
     log_level = levels[verbosity]
     logging.basicConfig(level=log_level, format=log_format, stream=sys.stdout, force=True)
     logger.debug(f'Verbosity set to: {verbosity=}')
 
 
-def main(lr: float, batch_size: int, momentum: float, weight_decay: float, max_epochs: int, save_interval: int, dataset: str, verbosity: int,
-         device: str, n_chan_u: int, n_chan_f: int) -> Dict[str, List[float]]:
+def main(
+    lr: float,
+    batch_size: int,
+    momentum: float,
+    weight_decay: float,
+    max_epochs: int,
+    save_interval: int,
+    dataset: str,
+    verbosity: int,
+    device: str,
+    n_chan_u: int,
+    n_chan_f: int,
+    n_iter: List[int],
+    smoother: str,
+) -> Dict[str, List[float]]:
     _setup_logger(verbosity)
     logger.info(f'Started main tests')
-    logger.info(f'Learning rate: {lr}, {batch_size=}, {momentum=}, {weight_decay=}, {max_epochs=}, {dataset=}, {device=}')
+    logger.info(
+        f'Learning rate: {lr}, {batch_size=}, {momentum=}, {weight_decay=}, {max_epochs=}, {dataset=}, {device=}, {n_iter=}, {smoother=}'
+    )
+    torch_device = torch.device(device)
     train_dataset = MGNetDataset(dataset, Path('./data'), train=True, download=True, transforms=transform_train)
     test_dataset = MGNetDataset(dataset, Path('./data'), train=False, download=True, transforms=transform_test)
     train_loader = DataLoader(train_dataset.dataset, batch_size, shuffle=True, num_workers=2)
     test_loader = DataLoader(test_dataset.dataset, batch_size, shuffle=False, num_workers=2)
     torch_device = torch.device(device)
     n_elements, width, height, in_channels = train_dataset.dim
-    net = (mgnet_resnet(False, in_channels=in_channels, n_chan_u=n_chan_u, n_chan_f=n_chan_f)
-           .to(device=torch_device))
+    net = mgnet(
+        pretrained=False,
+        in_channels=in_channels,
+        n_chan_u=n_chan_u,
+        n_chan_f=n_chan_f,
+        n_classes=train_dataset.n_classes,
+        smoother=smoother,
+    ).to(device=torch_device)
     # logger.info(f'Model size: {net.parameters_count}')
     optimizer = optim.SGD(net.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
@@ -120,21 +149,54 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', help='Weight decay', default=5e-4, type=float)
     parser.add_argument('--max_epochs', help='Max epochs', default=2, type=int)
     parser.add_argument('--save_interval', help='Interval at which the model should be saved', default=10, type=int)
-    parser.add_argument('--dataset', help='Dataset to train and test upon', default=DataSetSupported.CIFAR10.to_str(), choices=DataSetSupported.all(), type=str)
+    parser.add_argument(
+        '--dataset',
+        help='Dataset to train and test upon',
+        default='cifar10',
+        choices=MGNetDataset.supported_datasets(),
+        type=str,
+    )
     parser.add_argument('--device', help='Device to use', default=_DEFAULT_DEVICE, type=str)
     parser.add_argument('--n_chan_u', help='Number of channels to use of u', default=256, type=int)
     parser.add_argument('--n_chan_f', help='Number of channels to use of f', default=256, type=int)
+    parser.add_argument(
+        '--n_iter',
+        help='Number of smoothing in each grid. Example: "2,2,2,2,2"',
+        default=[2, 2, 2, 2, 2],
+        action=SplitArgs,
+    )
+    parser.add_argument(
+        '--smoother',
+        help='Type of smoother to use',
+        default=MGNet.supported_smoothers()[0],
+        choices=MGNet.supported_smoothers(),
+        type=str,
+    )
     parser.add_argument('-v', '--verbosity', help='Set verbosity level', action='count', default=0)
     # args = parser.parse_args()
-    args = parser.parse_args(args=['--lr', '0.1',
-                                   '--batch_size', '128',
-                                   '--momentum', '0.9',
-                                   '--weight_decay', '5e-4',
-                                   '--max_epochs', '120',
-                                   '--save_interval', '10',
-                                   '--dataset', 'CIFAR10'.lower(),
-                                   '-vv',
-                                   '--n_chan_u', '256',
-                                   '--n_chan_f', '256',
-                                   '--device', _DEFAULT_DEVICE])
+    args = parser.parse_args(
+        args=[
+            '--lr',
+            '0.1',
+            '--batch_size',
+            '128',
+            '--momentum',
+            '0.9',
+            '--weight_decay',
+            '5e-4',
+            '--max_epochs',
+            '120',
+            '--save_interval',
+            '10',
+            '--dataset',
+            'CIFAR10'.lower(),
+            '-vv',
+            '--n_chan_u',
+            '256',
+            '--n_chan_f',
+            '256',
+            '--device',
+            _DEFAULT_DEVICE,
+        ]
+    )
     main(**args.__dict__)

@@ -49,8 +49,9 @@ class EarlyStopping:
     def _save_checkpoint(self, val_loss: float, epoch: int, model) -> None:
         # Path.with_stem only supported in pathlib version 3.9 onwards
         filename = self._filename.with_name(f'{self._filename.stem}_{epoch}').with_suffix(self._filename.suffix)
-        logger.info(f'Validation loss decreased. {self._val_loss_min: .6f} -> {val_loss: .6f}. Saving model at: '
-                    f'{filename}')
+        logger.info(
+            f'Validation loss decreased. {self._val_loss_min: .6f} -> {val_loss: .6f}. Saving model at: ' f'{filename}'
+        )
         torch.save(model.state_dict(), filename)
 
 

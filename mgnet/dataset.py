@@ -1,39 +1,31 @@
+import torchvision.datasets as torch_datasets
 from torch import Tensor
 from torch.utils.data import Dataset
-import torchvision.datasets as torch_datasets
 from pathlib import Path
-import numpy as np
-from enum import Enum
 from typing import List
-
-
-class DataSetSupported(Enum):
-    CIFAR10 = torch_datasets.CIFAR10
-    CIFAR100 = torch_datasets.CIFAR100
-    MNIST = torch_datasets.MNIST
-
-    def to_str(self):
-        return str(self.name).lower()
-
-    def numb_classes(self):
-        return 100 if self == DataSetSupported.CIFAR100 else 10
-
-    @classmethod
-    def all(cls) -> List[str]:
-        return [val.to_str() for val in cls]
 
 
 class MGNetDataset(Dataset):
 
+    SUPPORTED_DATASETS = {
+        'cifar10': torch_datasets.CIFAR10,
+        'cifar100': torch_datasets.CIFAR100,
+        'mnist': torch_datasets.MNIST,
+    }
+
     def __init__(self, name: str, root: Path, train: bool, download: bool, transforms=None):
+        assert (
+            name in self.supported_datasets()
+        ), f'{name} dataset not supported. Possible options include: {self.supported_datasets()}'
+        dataset = MGNetDataset.SUPPORTED_DATASETS[name]
         self._name = name
         self._root = root
         self._train = train
-        self._transforms = transforms
-        dataset_type = DataSetSupported[name.upper()]
-        self._numb_classes = dataset_type.numb_classes()
-        dataset = dataset_type.value
         self._dataset = dataset(root=root, train=train, download=download, transform=transforms)
+
+    @staticmethod
+    def supported_datasets():
+        return list(MGNetDataset.SUPPORTED_DATASETS.keys())
 
     @property
     def name(self) -> str:
@@ -52,7 +44,7 @@ class MGNetDataset(Dataset):
         return self._dataset
 
     @property
-    def dim(self) :
+    def dim(self):
         return self.dataset.data.shape
 
     def __len__(self) -> int:
@@ -60,4 +52,3 @@ class MGNetDataset(Dataset):
 
     def __getitem__(self, item) -> Tensor:
         return self._dataset[item]
-
