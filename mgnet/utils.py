@@ -89,4 +89,11 @@ class Averager:
 
 
 def is_interactive() -> bool:
+    """
+    Check whether the current python interpreter is
+    running in an interactive environment, i.e. Jupyter
+    or Google Colab
+    :return: True if python is run in an interactive environment,
+        False otherwise
+    """
     return hasattr(sys, 'ps1')

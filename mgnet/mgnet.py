@@ -5,8 +5,6 @@ from torch import Tensor
 from torch.hub import load_state_dict_from_url
 import logging
 
-from torch.sparse import softmax
-
 logger = logging.getLogger(__name__)
 
 __all__ = ('mgnet', 'MGNet')
@@ -71,7 +69,7 @@ class MGBlockMultiStepSmoother(nn.ModuleDict):
         super().__init__()
         batch_normA = nn.BatchNorm2d(num_features=A.weight.size(0))
         n_layer = index + 1
-        for i in range(index):
+        for i in range(n_layer):
             self.add_module(
                 f'multistep_block_{i}', MGMultiStepLayer(A, batch_normA, n_chan_f=n_chan_f, n_chan_u=n_chan_u)
             )
@@ -88,7 +86,6 @@ class MGBlockMultiStepSmoother(nn.ModuleDict):
         softmax = nn.Softmax(dim=0)
         self.coef = nn.Parameter(softmax(self.coef))
         for index, (layer, u_l) in enumerate(zip(self.modules(), u_old)):
-            logger.info(f'{layer=}, {u_old=}')
             out = (u_l, u_l, f)
             out_i += self.coef[index] * layer(out)
         u_old.append(out_i)

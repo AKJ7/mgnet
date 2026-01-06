@@ -23,14 +23,40 @@ repository came to be.
 
 
 ## Theory of operation  
-```mermaid
-graph TD;
-    A[A<sup>l,i-1</sup>]-->B;
-    A-->C;
-    B-->D;
-    C-->D
-```
+This type of network generalizes multiple preexisting models like the famous ResNet 
+and DenseNet into a single configurable system.
 
+The premise is built upon the idea of multigrid: the solution `u` is smoothened and 
+its errors are projected on layers of various sizes.
+
+A single step consists of three phases:
+1. **Relaxation:** Given a smooth `S`, the solution of the problem `u` is computed
+using `S(u) = f` several time, to obtain an improved solution `v`.
+The residuum of the equation is computed `r = f - S(v)`
+2. **Restriction:** the residuum `r` is transferred on a layer of lower size and the
+approximation of the error `A_{r}e_{r} = r` is computed
+3. **Prolongation or interpolation**: the error `e` is projected back on the original
+layer `A_{p}e_{r} = r_{p}` and the original solution updated: `v = v + e_{r}`
+
+```mermaid
+---
+title: Basic multigrid
+---
+flowchart TD;
+    s[Start: v<sup>h</sup> = 0] --> v1    
+    subgraph "Relaxation"
+        v1["Solve: S<sup>h</sup> * u<sup>h</sup> = f<sup>h</sup>"]--> v["Compute residuum: r = f - S * v"]
+    end
+    subgraph Restriction 
+        v["Compute residuum: r<sup>h</sup> = f<sup>h</sup> - S<sup>h</sup>v<sup>h</sup>"] --> r1
+        r1["Project residuum on coarse layer: G<sup>2h</sup>: r<sup>2h</sup>"] --> r2
+    end
+    subgraph Prolongation
+        r2["Compute error: S<sup>2h</sup> * e<sup>2h</sup>= r<sup>2h</sup>"] --> r3
+    end
+    r3["Project error on finer layer: G<sup>h</sup>: e<sup>h</sup>"] --> p1["Updated solution: v<sup>h</sub> = v<sup>h</sub> + e<sup>h</sub>"]
+
+```
 
 
 ## Building and Running  
@@ -48,7 +74,7 @@ Build image:
 ```shell
 docker build . -t mgnet
 ```  
-Run image:
+Run image in container:
 ```shell
 docker run mgnet --help
 ```
