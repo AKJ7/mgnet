@@ -34,6 +34,16 @@ graph TD;
 
 
 ## Building and Running  
+**Local:**  
+Install dependencies:
+```shell
+uv sync
+```
+Run inference test (default values already set. Use `--help` option for help):  
+```shell
+PYTHONPATH="${PYTHONPATH}:${PWD}" uv run tests/test_inference.py
+```
+**Docker:**  
 Build image:
 ```shell
 docker build . -t mgnet

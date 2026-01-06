@@ -3,6 +3,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.hub import load_state_dict_from_url
+import logging
+
+from torch.sparse import softmax
+
+logger = logging.getLogger(__name__)
 
 __all__ = ('mgnet', 'MGNet')
 
@@ -26,7 +31,7 @@ def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
-class MGBlockSmoothing(nn.Module):
+class MGJacobiSmoother(nn.Module):
     def __init__(self, A: nn.Conv2d, n_chan_f: int, n_chan_u: int, index: int = 0):
         super().__init__()
         self.A = A
@@ -50,42 +55,42 @@ class MGMultiStepLayer(nn.ModuleDict):
         super().__init__()
         self.A = A
         self.bach_normA = batch_normA
-        self.alpha_i_j = nn.Parameter(torch.Tensor(1), requires_grad=True)
         self.B_i_j = nn.Conv2d(n_chan_f, n_chan_u, kernel_size=3, padding=1, stride=1, bias=False)  # B
         self.batch_normB = nn.BatchNorm2d(num_features=self.B_i_j.weight.size(0))
 
-    def forward(
-        self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        out_i, u, f = x
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        u, _, f = x
         out = f - self.A(u)
         out = torch.relu(self.batch_normA(out))
         out = u + torch.relu(self.batch_normB(self.B_i_j(out)))
-        out = out_i + self.alpha_i_j * out
-        out = (out, u, f)
         return out
 
 
 class MGBlockMultiStepSmoother(nn.ModuleDict):
     def __init__(self, A: nn.Conv2d, n_chan_f: int, n_chan_u: int, index: int):
         super().__init__()
-        self.A = A
-        self.batch_normA = nn.BatchNorm2d(num_features=A.weight.size(0))
+        batch_normA = nn.BatchNorm2d(num_features=A.weight.size(0))
+        n_layer = index + 1
         for i in range(index):
             self.add_module(
-                f'multistep_block_{i}', MGMultiStepLayer(self.A, self.batch_normA, n_chan_f=n_chan_f, n_chan_u=n_chan_u)
+                f'multistep_block_{i}', MGMultiStepLayer(A, batch_normA, n_chan_f=n_chan_f, n_chan_u=n_chan_u)
             )
+        self.coef = nn.Parameter(torch.rand(n_layer))
 
     def forward(
         self, x: Tuple[torch.Tensor, torch.Tensor | List[torch.Tensor], torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor | List[Tensor], torch.Tensor]:
         u, u_old, f = x
         if isinstance(u_old, torch.Tensor):
-            u_old = [u_old]
-        out_i = torch.zeros(u.shape)
-        for (name, layer), u_l in zip(self.items(), u_old):
-            out = (out_i, u_l, f)
-            out_i = layer(out)
+            u_old = [u]
+        target_device = next(self.parameters()).device
+        out_i = torch.zeros(u.shape, device=target_device)
+        softmax = nn.Softmax(dim=0)
+        self.coef = nn.Parameter(softmax(self.coef))
+        for index, (layer, u_l) in enumerate(zip(self.modules(), u_old)):
+            logger.info(f'{layer=}, {u_old=}')
+            out = (u_l, u_l, f)
+            out_i += self.coef[index] * layer(out)
         u_old.append(out_i)
         out = (out_i, u_old, f)
         return out
@@ -106,7 +111,7 @@ class MGBlockProlongation(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         u, u_old, f = out
         u_l_1 = torch.relu(self.batch_norm(self.pi(u)))
-        out = (u_l_1, u_old, f)
+        out = (u_l_1, u, f)
         return out
 
 
@@ -130,23 +135,19 @@ class MGBlockRestriction(nn.Module):
 class MGNet(nn.Module):
 
     SUPPORTED_SMOOTHERS = {
-        'jacobi': MGBlockSmoothing,
+        'jacobi': MGJacobiSmoother,
         'multistep': MGBlockMultiStepSmoother,
-        'Chebyshev': MGBlockChebyshevSmoother,
+        'chebyshev': MGBlockChebyshevSmoother,
     }
 
     def __init__(
         self,
-        smoother: MGBlockSmoothing,
+        smoother: MGJacobiSmoother,
         n_iter: List[int],
         n_chan_u: int,
         n_chan_f: int,
         in_channels: int,
         n_classes: int,
-        zero_init_residual=False,
-        groups=1,
-        width_per_group=64,
-        replace_stride_with_dilation=None,
         norm_layer: Optional[torch.nn.Module] = None,
     ) -> None:
         super(MGNet, self).__init__()

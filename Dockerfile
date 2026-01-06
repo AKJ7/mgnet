@@ -1,29 +1,30 @@
-FROM python:3.8-slim as base
+FROM python:3.10-slim as base
+
+ARG DOCKER_USER=devuser
 
 ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONFAULTHANDLER 1
+ENV TZ="Europe/Berlin"
 
-FROM base AS python-deps
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN useradd -ms /bin/bash $DOCKER_USER
+RUN usermod -aG sudo $DOCKER_USER
+USER $DOCKER_USER
 
-RUN pip install pipenv 
-RUN apt update && apt install -y --no-install-recommends gcc
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-COPY Pipfile .
-COPY Pipfile.lock .
-RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 
-FROM base AS runtime
+FROM base as uv-deps
 
-COPY --from=python-deps /.venv /.venv
-ENV PATH="/.venv/bin:$PATH"
+ARG DOCKER_USER=devuser
+ARG APP_DIR=app
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_NO_CACHE=1
 
-RUN useradd --create-home appuser 
-WORKDIR /home/appuser
-USER appuser
-
+WORKDIR /$DOCKER_USER/$APP_DIR
 COPY . .
+RUN uv sync --locked --no-install-project
 
-ENTRYPOINT ["python", "-m", "tests"]
-CMD ["--lr", "0.01"]
+CMD ["PYTHONPATH='${PYTHONPATH}:${PWD}' uv run tests/test_inference.py"]

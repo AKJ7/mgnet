@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import logging
 from pathlib import Path
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -85,3 +86,7 @@ class Averager:
 
     def __repr__(self) -> str:
         return f'Averager: "{self._name}". Value: {self._sum}, Average: {self._average}, Count: {self._count}'
+
+
+def is_interactive() -> bool:
+    return hasattr(sys, 'ps1')

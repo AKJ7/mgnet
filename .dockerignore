@@ -1,6 +1,7 @@
 **
 
-!Pipfile
-!Pipfile.lock 
+!uv.lock
+!.python-version
+!/pyproject.toml
 !mgnet/
 !tests

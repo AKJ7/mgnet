@@ -13,6 +13,7 @@ import sys
 from typing import Dict, List
 from mgnet.dataset import MGNetDataset
 from mgnet.mgnet import mgnet, MGNet
+from mgnet.utils import is_interactive
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ def main(
         n_chan_f=n_chan_f,
         n_classes=train_dataset.n_classes,
         smoother=smoother,
+        n_iter=n_iter,
     ).to(device=torch_device)
     # logger.info(f'Model size: {net.parameters_count}')
     optimizer = optim.SGD(net.parameters(), lr=lr)
@@ -101,8 +103,10 @@ def main(
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
-            train_losses.append(correct / total)
-        logger.info(f'Epoch: {epoch} | Train loss: {train_loss / len(train_loader)}. Acc: {100. * correct / total}%')
+        train_losses.append(correct / total * 100)
+        logger.info(
+            f'Epoch: {epoch} | Train loss: {train_loss / len(train_loader): .3f}. Acc: {100. * correct / total}%'
+        )
 
     def test(epoch: int):
         net.eval()
@@ -118,8 +122,10 @@ def main(
                 _, predicted = outputs.max(1)
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
-                test_losses.append(correct / total)
-            logger.info(f'Epoch: {epoch} | Test loss: {test_loss / len(test_loader)}, Acc: {100. * correct / total}%')
+            test_losses.append(correct / total * 100)
+            logger.info(
+                f'Epoch: {epoch} | Test loss: {test_loss / len(test_loader): .3f}, Acc: {100. * correct / total}%'
+            )
 
     for current_epoch in range(1, max_epochs + 1):
         train(current_epoch)
@@ -129,15 +135,14 @@ def main(
             torch.save(net.state_dict(), dest)
             logger.info(f'Model saved at {dest}')
 
+    fig, (train_ax, test_ax) = plt.subplots(2)
+    fig.suptitle('Training results')
+    train_ax.plot(range(len(train_losses)), train_losses)
+    train_ax.set_title('Train loss')
+    test_ax.plot(range(len(test_losses)), test_losses)
+    test_ax.set_title('Test loss')
+    plt.show()
     return {'train': train_losses, 'test': test_losses}
-
-    # fig, (train_ax, test_ax) = plt.subplots(2)
-    # fig.suptitle('Training results')
-    # train_ax.plot(range(1, len(train_losses)), train_losses)
-    # train_ax.set_title('Train loss')
-    # test_ax.plot(range(1, len(test_losses)), test_losses)
-    # test_ax.set_title('Test loss')
-    # plt.show()
 
 
 if __name__ == '__main__':
@@ -152,7 +157,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset',
         help='Dataset to train and test upon',
-        default='cifar10',
+        default=MGNetDataset.supported_datasets()[0],
         choices=MGNetDataset.supported_datasets(),
         type=str,
     )
@@ -173,30 +178,34 @@ if __name__ == '__main__':
         type=str,
     )
     parser.add_argument('-v', '--verbosity', help='Set verbosity level', action='count', default=0)
-    # args = parser.parse_args()
-    args = parser.parse_args(
-        args=[
-            '--lr',
-            '0.1',
-            '--batch_size',
-            '128',
-            '--momentum',
-            '0.9',
-            '--weight_decay',
-            '5e-4',
-            '--max_epochs',
-            '120',
-            '--save_interval',
-            '10',
-            '--dataset',
-            'CIFAR10'.lower(),
-            '-vv',
-            '--n_chan_u',
-            '256',
-            '--n_chan_f',
-            '256',
-            '--device',
-            _DEFAULT_DEVICE,
-        ]
-    )
+    if not is_interactive():
+        args = parser.parse_args()
+    else:
+        args = parser.parse_args(
+            args=[
+                '--lr',
+                '0.1',
+                '--batch_size',
+                '128',
+                '--momentum',
+                '0.9',
+                '--weight_decay',
+                '5e-4',
+                '--max_epochs',
+                '1',
+                '--save_interval',
+                '10',
+                '--dataset',
+                MGNetDataset.SUPPORTED_DATASETS()[0],
+                '-vv',
+                '--n_chan_u',
+                '256',
+                '--n_chan_f',
+                '256',
+                '--device',
+                _DEFAULT_DEVICE,
+                '--smoother',
+                MGNet.supported_smoothers()[0],
+            ]
+        )
     main(**args.__dict__)
