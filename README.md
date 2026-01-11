@@ -82,7 +82,9 @@ docker run mgnet --help
 ## Literatur
 - "[Algebraic Multigrid Methods][1]", Jinchao Xu, Ludmil T Zikatanov
 - "[MgNet: A Unified Framework of Multigrid and Convolutional Neural Network][2]", Juncai He, Jinchao Xu
+- "[Iterative Solution of Large Sparse Systems of Equations][3]", Wolfgang Hackbusch
 
 
 [1]: https://arxiv.org/abs/1611.01917?context=math
 [2]: http://arxiv.org/abs/1901.10415
+[3]: https://link.springer.com/book/10.1007/978-3-319-28483-5

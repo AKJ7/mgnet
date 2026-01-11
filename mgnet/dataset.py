@@ -1,8 +1,8 @@
 import torchvision.datasets as torch_datasets
-from torch import Tensor
 from torch.utils.data import Dataset
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
+from PIL.Image import Image
 
 
 class MGNetDataset(Dataset):
@@ -24,7 +24,7 @@ class MGNetDataset(Dataset):
         self._dataset = dataset(root=root, train=train, download=download, transform=transforms)
 
     @staticmethod
-    def supported_datasets():
+    def supported_datasets() -> List[str]:
         return list(MGNetDataset.SUPPORTED_DATASETS.keys())
 
     @property
@@ -50,5 +50,5 @@ class MGNetDataset(Dataset):
     def __len__(self) -> int:
         return len(self._dataset)
 
-    def __getitem__(self, item) -> Tensor:
+    def __getitem__(self, item) -> Tuple[Image, int]:
         return self._dataset[item]

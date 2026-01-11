@@ -1,3 +1,8 @@
+"""
+This code follows and references the theories as described in `Iterative Solutions
+of Large Sparse Systems of Equations` by Wolfgang Hackbusch
+"""
+
 from typing import List, Optional, Type, Union, Iterator, Tuple, Any
 import torch
 import torch.nn as nn
@@ -5,11 +10,10 @@ from torch import Tensor
 from torch.hub import load_state_dict_from_url
 import logging
 
-logger = logging.getLogger(__name__)
-
 __all__ = ('mgnet', 'MGNet')
 
 MODEL_URLS = {'mgnet': 'https://download.pytorch.org/models/'}
+logger = logging.getLogger(__name__)
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
@@ -29,7 +33,7 @@ def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
-class MGJacobiSmoother(nn.Module):
+class MGBlockJacobiSmoother(nn.Module):
     def __init__(self, A: nn.Conv2d, n_chan_f: int, n_chan_u: int, index: int = 0):
         super().__init__()
         self.A = A
@@ -44,6 +48,33 @@ class MGJacobiSmoother(nn.Module):
         out = f - self.A(u)
         out = torch.relu(self.batch_normA(out))
         out = u + torch.relu(self.batch_normB(self.B(out)))
+        out = (out, out, f)
+        return out
+
+
+class MGBlockDampedJacobiSmoother(MGBlockJacobiSmoother):
+    """
+    Damped Jacobi smoother. The acceleration is for a simple 2-level smoother optimal
+    only when it is set to 1.
+
+    Technically, the acceleration should be restrained between 0 and 1. This smoother
+    lets however, the training phase decide what the proper value of the acceleration
+    parameter should be.
+
+    See: Chapter 5.2 and 5.2.2
+    """
+
+    def __init__(self, A: nn.Conv2d, n_chan_f: int, n_chan_u: int, index: int = 0):
+        super().__init__(A, n_chan_f=n_chan_f, n_chan_u=n_chan_u, index=index)
+        self.acceleration = nn.Parameter(Tensor(1))
+
+    def forward(
+        self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        u, _, f = x
+        out = f - self.A(u)
+        out = torch.relu(self.batch_normA(out))
+        out = u + self.acceleration * torch.relu(self.batch_normB(self.B(out)))
         out = (out, out, f)
         return out
 
@@ -94,7 +125,23 @@ class MGBlockMultiStepSmoother(nn.ModuleDict):
 
 
 class MGBlockChebyshevSmoother(nn.ModuleDict):
-    pass
+    def __init__(self, A: nn.Conv2d, n_chan_f: int, n_chan_u: int, index: int = 0):
+        super().__init__()
+        self.A = A
+        self.B = nn.Conv2d(n_chan_f, n_chan_u, kernel_size=3, padding=1, stride=1, bias=False)
+        self.batch_normA = nn.BatchNorm2d(num_features=A.weight.size(0))
+        self.batch_normB = nn.BatchNorm2d(num_features=self.B.weight.size(0))
+        self.w = nn.Parameter(torch.Tensor(1))
+
+    def forward(
+        self, x: Tuple[torch.Tensor, torch.Tensor | List[torch.Tensor], torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor | List[Tensor], torch.Tensor]:
+        u, u_old, f = x
+        out = f - self.A(u)
+        out = torch.relu(self.batch_normA(out))
+        out = u + self.w * (torch.relu(self.batch_normB(self.B(out)))) + (1 - self.w) * u_old
+        out = (out, u, f)
+        return out
 
 
 class MGBlockProlongation(nn.Module):
@@ -132,14 +179,15 @@ class MGBlockRestriction(nn.Module):
 class MGNet(nn.Module):
 
     SUPPORTED_SMOOTHERS = {
-        'jacobi': MGJacobiSmoother,
+        'jacobi': MGBlockJacobiSmoother,
         'multistep': MGBlockMultiStepSmoother,
         'chebyshev': MGBlockChebyshevSmoother,
+        'damped_jacobi': MGBlockDampedJacobiSmoother,
     }
 
     def __init__(
         self,
-        smoother: MGJacobiSmoother,
+        smoother: MGBlockJacobiSmoother,
         n_iter: List[int],
         n_chan_u: int,
         n_chan_f: int,
@@ -205,7 +253,7 @@ class MGNet(nn.Module):
         self, n_chan_u: int, n_chan_f: int, smooth_count: int, A: nn.Conv2d, only_smooth: bool = False
     ) -> Tuple[nn.Sequential, nn.Conv2d]:
         restriction_block = None
-        layer = []
+        layer = nn.Sequential()
         for i in range(smooth_count):
             block = self._smoother(A, n_chan_f=n_chan_f, n_chan_u=n_chan_u, index=i)
             layer.append(block)
@@ -214,9 +262,8 @@ class MGNet(nn.Module):
             restriction_block = MGBlockRestriction(A, n_chan_f, n_chan_u)
             layer.append(prolongation_block)
             layer.append(restriction_block)
-        seq_layer = nn.Sequential(*layer)
         A_l = None if restriction_block is None else restriction_block.A_l
-        return seq_layer, A_l
+        return layer, A_l
 
 
 def _mgnet(*, arch: str, block, pretrained: bool, progress: bool, **kwargs: Any):
