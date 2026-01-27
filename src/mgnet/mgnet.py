@@ -66,7 +66,7 @@ class MGBlockDampedJacobiSmoother(MGBlockJacobiSmoother):
 
     def __init__(self, A: nn.Conv2d, n_chan_f: int, n_chan_u: int, index: int = 0):
         super().__init__(A, n_chan_f=n_chan_f, n_chan_u=n_chan_u, index=index)
-        self.acceleration = nn.Parameter(Tensor(1))
+        self.acceleration = nn.Parameter(torch.ones((1, 1)))
 
     def forward(
         self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
@@ -74,7 +74,7 @@ class MGBlockDampedJacobiSmoother(MGBlockJacobiSmoother):
         u, _, f = x
         out = f - self.A(u)
         out = torch.relu(self.batch_normA(out))
-        out = u + self.acceleration * torch.relu(self.batch_normB(self.B(out)))
+        out = u + torch.relu(self.batch_normB(self.acceleration.sigmoid() * self.B(out)))
         out = (out, out, f)
         return out
 
@@ -187,7 +187,7 @@ class MGNet(nn.Module):
 
     def __init__(
         self,
-        smoother: MGBlockJacobiSmoother,
+        smoother: nn.Module,
         n_iter: List[int],
         n_chan_u: int,
         n_chan_f: int,

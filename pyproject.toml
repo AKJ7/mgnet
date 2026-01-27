@@ -1,23 +1,41 @@
 [project]
 name = "mgnet"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multigrid Neural Network implemented in PyTorch"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "black>=25.12.0",
-    "matplotlib>=3.10.8",
-    "numpy>=2.2.6",
-    "pillow>=12.0.0",
-    "torch>=2.9.1",
-    "torchvision>=0.24.1",
+    "torch>=2.10.0",
 ]
 authors = [
     { name = 'AKJ7', email='akj123429@gmail.com' }
 ]
+license = "MIT"
+license-file = ["LICENSE"]
 
 [tool.black]
 line-length = 120
 target-version = ['py310']
 skip-string-normalization = true
 
+[tool.uv.workspace]
+members = [
+    "mgnet",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.12.0",
+    "matplotlib>=3.10.8",
+    "numpy>=2.2.6",
+    "pillow>=12.0.0",
+    "torchvision>=0.25.0",
+    "torchviz>=0.0.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[project.urls]
+Homepage = "https://github.com/AKJ7/mgnet"

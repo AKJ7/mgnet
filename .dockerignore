@@ -3,5 +3,5 @@
 !uv.lock
 !.python-version
 !/pyproject.toml
-!mgnet/
+!src/mgnet/
 !tests

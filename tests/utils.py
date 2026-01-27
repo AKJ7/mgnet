@@ -3,6 +3,7 @@ import torch
 import logging
 from pathlib import Path
 import sys
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -97,3 +98,7 @@ def is_interactive() -> bool:
         False otherwise
     """
     return hasattr(sys, 'ps1')
+
+
+def list_optimizers() -> List[str]:
+    return torch.optim.__all__

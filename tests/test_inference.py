@@ -11,9 +11,10 @@ from matplotlib import pyplot as plt
 from pathlib import Path
 import sys
 from typing import Dict, List
-from mgnet.dataset import MGNetDataset
+from dataset import MGNetDataset
 from mgnet.mgnet import mgnet, MGNet
-from mgnet.utils import is_interactive
+from utils import list_optimizers, is_interactive
+from torchviz import make_dot
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +60,12 @@ def main(
     n_chan_f: int,
     n_iter: List[int],
     smoother: str,
+    optimizer: str,
 ) -> Dict[str, List[float]]:
     _setup_logger(verbosity)
     logger.info(f'Started main tests')
     logger.info(
-        f'Learning rate: {lr}, {batch_size=}, {momentum=}, {weight_decay=}, {max_epochs=}, {dataset=}, {device=}, {n_iter=}, {smoother=}'
+        f'Learning rate: {lr}, {batch_size=}, {momentum=}, {weight_decay=}, {max_epochs=}, {dataset=}, {device=}, {n_iter=}, {smoother=}, {optimizer=}'
     )
     torch_device = torch.device(device)
     train_dataset = MGNetDataset(dataset, Path('./data'), train=True, download=True, transforms=transform_train)
@@ -81,8 +83,7 @@ def main(
         smoother=smoother,
         n_iter=n_iter,
     ).to(device=torch_device)
-    # logger.info(f'Model size: {net.parameters_count}')
-    optimizer = optim.SGD(net.parameters(), lr=lr)
+    optimizer = getattr(optim, optimizer)(net.parameters(), lr=lr, momentum=momentum)
     criterion = nn.CrossEntropyLoss()
     train_losses = []
     test_losses = []
@@ -96,6 +97,7 @@ def main(
             inputs, targets = inputs.to(torch_device), targets.to(torch_device)
             optimizer.zero_grad()
             outputs = net(inputs)
+            # make_dot(outputs, params=dict(net.named_parameters())).render('mgnet', format='png')
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
@@ -146,11 +148,10 @@ def main(
 
 
 if __name__ == '__main__':
-    # TODO: Add to uv: PYTHONPATH="${PYTHONPATH}:${PWD}" /home/hp/.local/bin/uv run tests/test_inference.py
     parser = argparse.ArgumentParser(description='Train and test MGNet')
     parser.add_argument('--lr', help='Learning rate', default=1e-1, type=float)
     parser.add_argument('--batch_size', help='Batch Size', default=128, type=int)
-    parser.add_argument('--momentum', help='Momentum', default=0.9, type=float)
+    parser.add_argument('--momentum', help='Momentum', default=0, type=float)
     parser.add_argument('--weight_decay', help='Weight decay', default=5e-4, type=float)
     parser.add_argument('--max_epochs', help='Max epochs', default=2, type=int)
     parser.add_argument('--save_interval', help='Interval at which the model should be saved', default=10, type=int)
@@ -177,6 +178,7 @@ if __name__ == '__main__':
         choices=MGNet.supported_smoothers(),
         type=str,
     )
+    parser.add_argument('--optimizer', help='Optimizer to use', default='SGD', choices=list_optimizers(), type=str)
     parser.add_argument('-v', '--verbosity', help='Set verbosity level', action='count', default=0)
     if not is_interactive():
         args = parser.parse_args()
@@ -192,11 +194,11 @@ if __name__ == '__main__':
                 '--weight_decay',
                 '5e-4',
                 '--max_epochs',
-                '1',
+                '120',
                 '--save_interval',
                 '10',
                 '--dataset',
-                MGNetDataset.SUPPORTED_DATASETS()[0],
+                MGNetDataset.supported_datasets()[0],
                 '-vv',
                 '--n_chan_u',
                 '256',
