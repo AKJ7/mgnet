@@ -1,6 +1,6 @@
 [project]
 name = "mgnet"
-version = "0.1.1"
+version = "0.1.2"
 description = "Multigrid Neural Network implemented in PyTorch"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,20 @@ authors = [
 ]
 license = "MIT"
 license-file = ["LICENSE"]
+classifiers = [
+    "License :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 [tool.black]
 line-length = 120
@@ -21,7 +35,11 @@ skip-string-normalization = true
 [tool.uv.workspace]
 members = [
     "mgnet",
+    "numpy"
 ]
+
+[tool.uv-dynamic-versioning]
+fallback-version = "0.0.0"
 
 [dependency-groups]
 dev = [
@@ -34,7 +52,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.18,<0.10.0"]
+requires = ["uv_build>=0.9.18,<0.10.0", "uv-dynamic-versioning"]
 build-backend = "uv_build"
 
 [project.urls]

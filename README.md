@@ -1,8 +1,43 @@
 # MGNet  
+
+<div style="text-align:center">
+
+![PyPI](https://img.shields.io/badge/-PyPI-blue.svg?logo=pypi&labelColor=555555&style=for-the-badge)
+![Download count](https://img.shields.io/pypi/dm/mgnet?color=brightgreen&style=for-the-badge)
+![PyPI license](https://img.shields.io/pypi/l/mgnet?color=brightgreen&style=for-the-badge)
+![Latest version](https://img.shields.io/github/v/tag/AKJ7/mgnet?color=brightgreen&style=for-the-badge)
+</div>
+
 MultiGrid Methods + Neural Networks = MgNet  
 
 ## tl;dr  
 MultiGrid methods cool. Repository implements [paper][2] with pytorch.
+
+## Usage
+
+```python
+from mgnet.model import mgnet, MGNet
+import torch
+
+supported_smoothers = MGNet.supported_smoothers()
+print(f'{supported_smoothers=}')
+n_image_chan = 3
+batch_size = 1
+image_width = 28
+image_height = 28
+model = mgnet(smoother=supported_smoothers[0],
+              pretrained=False,
+              progress=False,
+              in_channels=n_image_chan,
+              n_chan_u=128,
+              n_chan_f=128,
+              n_classes=10,
+              n_iter=[2,2,2,2]
+              )
+x = torch.rand((batch_size, n_image_chan, image_width, image_height))
+y = model(x)
+print(f'{y=}')
+```
 
 ## Background  
 
@@ -59,11 +94,11 @@ flowchart TD;
 ```
 
 
-## Building and Running  
+## Testing
 **Local:**  
 Install dependencies:
 ```shell
-uv sync
+uv sync --dev
 ```
 Run inference test (default values already set. Use `--help` option for help):  
 ```shell

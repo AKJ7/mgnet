@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 from typing import Dict, List
 from dataset import MGNetDataset
-from mgnet.mgnet import mgnet, MGNet
+from mgnet.model import mgnet, MGNet
 from utils import list_optimizers, is_interactive
 from torchviz import make_dot
 
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', help='Batch Size', default=128, type=int)
     parser.add_argument('--momentum', help='Momentum', default=0, type=float)
     parser.add_argument('--weight_decay', help='Weight decay', default=5e-4, type=float)
-    parser.add_argument('--max_epochs', help='Max epochs', default=2, type=int)
+    parser.add_argument('--max_epochs', help='Max epochs', default=120, type=int)
     parser.add_argument('--save_interval', help='Interval at which the model should be saved', default=10, type=int)
     parser.add_argument(
         '--dataset',
