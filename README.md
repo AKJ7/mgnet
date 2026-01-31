@@ -1,6 +1,6 @@
 # MGNet  
 
-<div style="text-align:center">
+<div align="center">
 
 ![PyPI](https://img.shields.io/badge/-PyPI-blue.svg?logo=pypi&labelColor=555555&style=for-the-badge)
 ![Download count](https://img.shields.io/pypi/dm/mgnet?color=brightgreen&style=for-the-badge)
@@ -8,10 +8,29 @@
 ![Latest version](https://img.shields.io/github/v/tag/AKJ7/mgnet?color=brightgreen&style=for-the-badge)
 </div>
 
+<div style="text-align: center">
 MultiGrid Methods + Neural Networks = MgNet  
+</div>
 
-## tl;dr  
-MultiGrid methods cool. Repository implements [paper][2] with pytorch.
+## Description  
+In this repository, MGNet as introduced in this [paper][2], is introduced.
+
+Its main idea revolves around the usage of multigrid theories to extract features from data.
+With the appropriate configuration, it can be proven that this type of network resembles the 
+ResNet, DenseNet and various other networks. 
+Unlike other previous CNNs, however, this network is not based on trial and errors, rather, on 
+strict mathematical principles. 
+Refer to the [literature](#literature) for more information.
+
+**Features:**
+
+- Support for various types of smoothers: 
+  - Jacobi
+  - Accelerated-Jacobi
+  - Chebyshev
+  - Multistep
+- Support for V- and W-Cycles
+
 
 ## Usage
 
@@ -36,7 +55,7 @@ model = mgnet(smoother=supported_smoothers[0],
               )
 x = torch.rand((batch_size, n_image_chan, image_width, image_height))
 y = model(x)
-print(f'{y=}')
+print(f'{y=} {model.parameters_count=}')
 ```
 
 ## Background  
@@ -114,7 +133,7 @@ Run image in container:
 docker run mgnet --help
 ```
 
-## Literatur
+## Literature
 - "[Algebraic Multigrid Methods][1]", Jinchao Xu, Ludmil T Zikatanov
 - "[MgNet: A Unified Framework of Multigrid and Convolutional Neural Network][2]", Juncai He, Jinchao Xu
 - "[Iterative Solution of Large Sparse Systems of Equations][3]", Wolfgang Hackbusch

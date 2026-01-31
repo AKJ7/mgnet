@@ -13,7 +13,6 @@ authors = [
 license = "MIT"
 license-file = ["LICENSE"]
 classifiers = [
-    "License :: MIT License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.10",
     "Intended Audience :: Developers",

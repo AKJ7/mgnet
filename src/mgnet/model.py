@@ -297,7 +297,7 @@ class MGNet(nn.Module):
         Get the number of trainable parameters in the model
         :return: Trainable parameters count
         """
-        return sum(parameter.numel() for parameter in self.paramters() if parameter.required_grad)
+        return sum(parameter.numel() for parameter in self.parameters() if parameter.requires_grad)
 
     @property
     def loaded_device(self):

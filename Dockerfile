@@ -25,6 +25,6 @@ ENV UV_NO_CACHE=1
 
 WORKDIR /$DOCKER_USER/$APP_DIR
 COPY . .
-RUN uv sync --locked --no-install-project
+RUN uv sync --locked --no-install-project --dev
 
 CMD ["PYTHONPATH='${PYTHONPATH}:${PWD}' uv run tests/test_inference.py"]
